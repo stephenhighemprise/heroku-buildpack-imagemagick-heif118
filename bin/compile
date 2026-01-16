@@ -1,0 +1,96 @@
+#!/usr/bin/env bash
+# bin/compile <build-dir> <cache-dir> <env-dir>
+
+set -e
+
+BUILD_DIR=$1
+CACHE_DIR=$2
+ENV_DIR=$3
+BP_DIR=$(cd $(dirname $0); cd ..; pwd)
+
+VENDOR_DIR="$BUILD_DIR/vendor"
+INSTALL_DIR="$VENDOR_DIR/imagemagick"
+
+# Detect Heroku stack
+STACK="${STACK:-heroku-22}"
+
+# Determine which binary to use
+if [[ "$STACK" == "heroku-24" ]]; then
+    BINARY_FILE="imagemagick-24.tar.gz"
+elif [[ "$STACK" == "heroku-22" ]]; then
+    BINARY_FILE="imagemagick-22.tar.gz"
+else
+    echo "ERROR: Unsupported stack: $STACK"
+    echo "This buildpack supports heroku-22 and heroku-24 only"
+    exit 1
+fi
+
+CACHE_FILE="$CACHE_DIR/$BINARY_FILE"
+
+indent() {
+  sed -u 's/^/       /'
+}
+
+arrow() {
+  sed -u 's/^/-----> /'
+}
+
+echo "Installing ImageMagick 7 with libheif 1.18+ for $STACK" | arrow
+
+# Create vendor directory
+mkdir -p "$VENDOR_DIR"
+mkdir -p "$CACHE_DIR"
+
+# Check if we have a cached version
+if [ -f "$CACHE_FILE" ]; then
+  echo "Using cached ImageMagick binaries for $STACK" | indent
+  tar -xzf "$CACHE_FILE" -C "$VENDOR_DIR"
+else
+  echo "Extracting ImageMagick binaries from buildpack" | indent
+  
+  if [ ! -f "$BP_DIR/build/$BINARY_FILE" ]; then
+    echo "ERROR: ImageMagick binaries not found for $STACK!" | indent
+    echo "Expected file: $BP_DIR/build/$BINARY_FILE" | indent
+    echo "Please run ./build.sh 22 and ./build.sh 24 to build binaries for both stacks." | indent
+    exit 1
+  fi
+  
+  tar -xzf "$BP_DIR/build/$BINARY_FILE" -C "$VENDOR_DIR"
+  
+  # Cache for future builds
+  echo "Caching ImageMagick binaries" | indent
+  cp "$BP_DIR/build/$BINARY_FILE" "$CACHE_FILE"
+fi
+
+# Set up environment
+echo "Setting up environment variables" | indent
+
+PROFILE_PATH="$BUILD_DIR/.profile.d/imagemagick.sh"
+mkdir -p $(dirname $PROFILE_PATH)
+
+cat <<EOF > $PROFILE_PATH
+export PATH="\$HOME/vendor/imagemagick/bin:\$PATH"
+export LD_LIBRARY_PATH="\$HOME/vendor/imagemagick/lib:\$LD_LIBRARY_PATH"
+export MAGICK_HOME="\$HOME/vendor/imagemagick"
+export MAGICK_CONFIGURE_PATH="\$HOME/vendor/imagemagick/etc/ImageMagick-7"
+export PKG_CONFIG_PATH="\$HOME/vendor/imagemagick/lib/pkgconfig:\$PKG_CONFIG_PATH"
+EOF
+
+# Also set for compile-time (for gems that might need it)
+export PATH="$INSTALL_DIR/bin:$PATH"
+export LD_LIBRARY_PATH="$INSTALL_DIR/lib:$LD_LIBRARY_PATH"
+export MAGICK_HOME="$INSTALL_DIR"
+export MAGICK_CONFIGURE_PATH="$INSTALL_DIR/etc/ImageMagick-7"
+export PKG_CONFIG_PATH="$INSTALL_DIR/lib/pkgconfig:$PKG_CONFIG_PATH"
+
+# Verify installation
+if [ -f "$INSTALL_DIR/bin/convert" ]; then
+  echo "ImageMagick installed successfully" | indent
+  $INSTALL_DIR/bin/convert -version | grep "Version:" | indent
+  $INSTALL_DIR/bin/convert -version | grep "Delegates:" | indent
+else
+  echo "ERROR: ImageMagick installation failed" | indent
+  exit 1
+fi
+
+echo "ImageMagick with libheif 1.18+ installation complete!" | arrow

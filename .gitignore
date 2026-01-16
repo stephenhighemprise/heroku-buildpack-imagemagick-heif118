@@ -1,0 +1,15 @@
+# Build artifacts (except the final tarballs)
+build/test/
+
+# macOS
+.DS_Store
+
+# Editor files
+*.swp
+*.swo
+*~
+.idea/
+.vscode/
+
+# Note: build/imagemagick-22.tar.gz and build/imagemagick-24.tar.gz 
+# should be committed to the repo

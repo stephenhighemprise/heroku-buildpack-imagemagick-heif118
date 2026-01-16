@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# bin/release <build-dir>
+
+cat << EOF
+---
+config_vars:
+  PATH: /app/vendor/imagemagick/bin:$PATH
+  LD_LIBRARY_PATH: /app/vendor/imagemagick/lib:$LD_LIBRARY_PATH
+  MAGICK_HOME: /app/vendor/imagemagick
+  MAGICK_CONFIGURE_PATH: /app/vendor/imagemagick/etc/ImageMagick-7
+EOF

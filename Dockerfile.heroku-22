@@ -1,0 +1,98 @@
+FROM heroku/heroku:22-build as heroku-22
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    cmake \
+    git \
+    wget \
+    pkg-config \
+    autoconf \
+    automake \
+    libtool \
+    nasm \
+    yasm \
+    libjpeg-dev \
+    libpng-dev \
+    libtiff-dev \
+    libwebp-dev \
+    libopenjp2-7-dev \
+    liblcms2-dev \
+    libxml2-dev \
+    libfontconfig1-dev \
+    libfreetype6-dev \
+    libbz2-dev \
+    liblzma-dev \
+    zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Build libde265 (HEIC decoder dependency)
+RUN wget https://github.com/strukturag/libde265/releases/download/v1.0.15/libde265-1.0.15.tar.gz && \
+    tar xzf libde265-1.0.15.tar.gz && \
+    cd libde265-1.0.15 && \
+    ./configure --prefix=/app/vendor/imagemagick --disable-static && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf libde265-*
+
+# Build x265 (HEIC encoder)
+RUN git clone --depth 1 --branch 3.6 https://bitbucket.org/multicoreware/x265_git.git && \
+    cd x265_git/build/linux && \
+    cmake -G "Unix Makefiles" \
+          -DCMAKE_INSTALL_PREFIX=/app/vendor/imagemagick \
+          -DENABLE_SHARED=ON \
+          -DENABLE_CLI=OFF \
+          ../../source && \
+    make -j$(nproc) && \
+    make install && \
+    cd /build && rm -rf x265_git
+
+# Build libheif 1.18.2 (iOS 18 HEIC support)
+RUN wget https://github.com/strukturag/libheif/releases/download/v1.18.2/libheif-1.18.2.tar.gz && \
+    tar xzf libheif-1.18.2.tar.gz && \
+    cd libheif-1.18.2 && \
+    PKG_CONFIG_PATH=/app/vendor/imagemagick/lib/pkgconfig \
+    ./configure --prefix=/app/vendor/imagemagick \
+                --disable-static \
+                --disable-go \
+                --disable-examples && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf libheif-*
+
+# Build ImageMagick 7.1.1-36
+RUN wget https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-36.tar.gz && \
+    tar xzf 7.1.1-36.tar.gz && \
+    cd ImageMagick-7.1.1-36 && \
+    PKG_CONFIG_PATH=/app/vendor/imagemagick/lib/pkgconfig \
+    LD_LIBRARY_PATH=/app/vendor/imagemagick/lib \
+    ./configure --prefix=/app/vendor/imagemagick \
+                --disable-static \
+                --enable-shared \
+                --with-heic=yes \
+                --with-webp=yes \
+                --with-jpeg=yes \
+                --with-png=yes \
+                --with-tiff=yes \
+                --with-freetype=yes \
+                --with-fontconfig=yes \
+                --without-magick-plus-plus \
+                --disable-docs && \
+    make -j$(nproc) && \
+    make install && \
+    cd .. && rm -rf ImageMagick-*
+
+# Strip binaries to reduce size
+RUN find /app/vendor/imagemagick -type f -name "*.so*" -exec strip --strip-unneeded {} \; 2>/dev/null || true
+RUN find /app/vendor/imagemagick/bin -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
+
+# Create tarball
+RUN cd /app/vendor && tar czf /tmp/imagemagick.tar.gz imagemagick
+
+# Verify the build
+RUN /app/vendor/imagemagick/bin/convert -version && \
+    /app/vendor/imagemagick/bin/heif-info --version
+
+CMD ["cat", "/tmp/imagemagick.tar.gz"]
