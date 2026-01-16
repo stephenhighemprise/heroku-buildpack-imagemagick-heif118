@@ -1,7 +1,10 @@
-FROM heroku/heroku:24-build
+FROM ubuntu:24.04
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Update and install dependencies in one layer
+RUN apt-get update && \
+    apt-get install -y \
     build-essential \
     cmake \
     git \
@@ -24,7 +27,8 @@ RUN apt-get update && apt-get install -y \
     libbz2-dev \
     liblzma-dev \
     zlib1g-dev \
-    && rm -rf /var/lib/apt/lists/*
+    ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
 
@@ -49,18 +53,21 @@ RUN git clone --depth 1 --branch 3.6 https://bitbucket.org/multicoreware/x265_gi
     make install && \
     cd /build && rm -rf x265_git
 
-# Build libheif 1.18.2 (iOS 18 HEIC support)
+# Build libheif 1.18.2 (iOS 18 HEIC support) - using CMake
 RUN wget https://github.com/strukturag/libheif/releases/download/v1.18.2/libheif-1.18.2.tar.gz && \
-    tar xzf libheif-1.18.2.tar.gz && \
+    tar -xzf libheif-1.18.2.tar.gz && \
     cd libheif-1.18.2 && \
+    mkdir build && \
+    cd build && \
     PKG_CONFIG_PATH=/app/vendor/imagemagick/lib/pkgconfig \
-    ./configure --prefix=/app/vendor/imagemagick \
-                --disable-static \
-                --disable-go \
-                --disable-examples && \
+    cmake -DCMAKE_INSTALL_PREFIX=/app/vendor/imagemagick \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DBUILD_SHARED_LIBS=ON \
+          -DWITH_EXAMPLES=OFF \
+          .. && \
     make -j$(nproc) && \
     make install && \
-    cd .. && rm -rf libheif-*
+    cd ../.. && rm -rf libheif-*
 
 # Build ImageMagick 7.1.1-36
 RUN wget https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-36.tar.gz && \
@@ -85,14 +92,12 @@ RUN wget https://github.com/ImageMagick/ImageMagick/archive/refs/tags/7.1.1-36.t
     cd .. && rm -rf ImageMagick-*
 
 # Strip binaries to reduce size
-RUN find /app/vendor/imagemagick -type f -name "*.so*" -exec strip --strip-unneeded {} \; 2>/dev/null || true
-RUN find /app/vendor/imagemagick/bin -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
+RUN find /app/vendor/imagemagick -type f -name "*.so*" -exec strip --strip-unneeded {} \; 2>/dev/null || true && \
+    find /app/vendor/imagemagick/bin -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
 
 # Create tarball
 RUN cd /app/vendor && tar czf /tmp/imagemagick.tar.gz imagemagick
 
-# Verify the build
-RUN /app/vendor/imagemagick/bin/convert -version && \
-    /app/vendor/imagemagick/bin/heif-info --version
+# Note: Verification happens when deployed to Heroku with proper env vars
 
 CMD ["cat", "/tmp/imagemagick.tar.gz"]

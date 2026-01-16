@@ -23,7 +23,7 @@ mkdir -p build
 
 # Build the Docker image
 echo "Building Docker image for Heroku-$STACK..."
-docker build -f Dockerfile.heroku-$STACK -t imagemagick-heif-builder:$STACK .
+docker build --no-cache -f Dockerfile.heroku-$STACK -t imagemagick-heif-builder:$STACK .
 
 # Extract the tarball
 echo ""
